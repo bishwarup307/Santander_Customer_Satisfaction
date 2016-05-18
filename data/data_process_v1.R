@@ -1,25 +1,27 @@
+# load required libraries
 require(readr)
 require(Hmisc)
 require(dplyr)
 require(caret)
 require(Rtsne)
 
+# set working directory and random seed
 setwd("F:/Kaggle/Santander")
 set.seed(1)
 
+# load the raw data files and merge them
 train <- read.csv("./RawData/train.csv")
 test <- read.csv("./RawData/test.csv")
-
 train$trainFlag <- 1
 test$trainFlag <- 0
 test$TARGET <- NA
-
 alldata <- rbind(train, test)
 
+# remove constant columns
 const.cols <- names(which(sapply(alldata[, -c(1, 371, 372)], function(x) length(unique(x))) == 1))
 alldata <- alldata[, !names(alldata) %in% const.cols] # remove constant cols
 
-##### Removing identical features
+# removing identical features
 features_pair <- combn(names(alldata), 2, simplify = F)
 toRemove <- c()
 for(pair in features_pair) {
@@ -33,11 +35,9 @@ for(pair in features_pair) {
     }
   }
 }
-
 alldata <- alldata[, !names(alldata) %in% toRemove] # remove duplicate features
 
-####### remove linear combos
-
+# remove linear combos
 #nzv <- nearZeroVar(alldata[, -c(1, 310, 311)], saveMetrics = TRUE)
 #nearZeroVar.cols <- row.names(nzv[nzv$nzv == TRUE,])
 
@@ -45,33 +45,28 @@ lin.comb <- findLinearCombos(alldata[, -c(1, 310, 311)])
 lin.comb.remove <- names(alldata[, -c(1, 310, 311)])[lin.comb$remove]
 alldata <- alldata[, !names(alldata) %in% lin.comb.remove]
 
-##### number of zeros in each row, 
+# number of zeros in each row, 
 alldata$zeroCount <- apply(alldata[, !names(alldata) %in% c("ID", "TARGET", "trainFlag")], 1, function(x) sum(x == 0))
 alldata$rowSum <- apply(alldata[, !names(alldata) %in% c("ID", "TARGET", "trainFlag")], 1, function(x) sum(x, na.rm = TRUE))
 
-###### binary cols
+# binary cols
 binCols <- names(which(sapply(alldata[, -c(1, 248:251)], function(x) length(unique(x)) == 2)))
 binDF <- alldata[, binCols]
 
-
+# 2D tsne embedding
 tsne <- Rtsne(as.matrix(binDF), dims = 2, perplexity = 30, check_duplicates = FALSE, pca = FALSE, theta = 0.5, verbose = TRUE)
 tsneDF <- as.data.frame(tsne$Y)
 names(tsneDF) <- c("tsne_f1", "tsne_f2")
-
 alldata <- cbind(alldata, tsneDF)
 
 # tsneDF <- alldata[, c("ID", "tsne_f1", "tsne_f2")]
 # write_csv(tsneDF, "./RawData/tsne_features.csv")
-
-###########################
-
+# save to disk
 save(alldata, file = "./data_V1/alldata_v1.RData")
 
-
-######### get feature importance ########
+# get xgb feature importance
 ptr <- alldata[alldata$trainFlag == 1,]
 pte <- alldata[alldata$trainFlag == 0,]
-
 require(xgboost)
 
 param <- list(objective = "binary:logistic",
